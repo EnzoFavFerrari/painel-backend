@@ -1,5 +1,2 @@
-# Ficheiros de dependências do Node
 node_modules/
-
-# Ficheiro de chave de serviço secreta do Firebase
 serviceAccountKey.json
