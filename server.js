@@ -13,6 +13,18 @@ const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT
   ? JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT)
   : require('./serviceAccountKey.json');
 
+// Inicializa a aplicação Firebase com as credenciais corretas
+// Esta verificação impede que a app seja inicializada múltiplas vezes
+if (!admin.apps.length) {
+  admin.initializeApp({
+    credential: admin.credential.cert(serviceAccount)
+  });
+}
+
+// Obtém uma referência à base de dados Firestore
+// Esta linha ESTÁ AGORA no sítio certo
+const db = admin.firestore();
+
 // --- Inicialização do App Express ---
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -21,9 +33,9 @@ const PORT = process.env.PORT || 3000;
 app.use(cors());
 app.use(express.json());
 
-// --- Rotas da API (a ler do Firestore) ---
+// --- Rotas da API (agora a ler do Firestore) ---
 
-// Rota principal
+// Rota principal para verificar se o servidor está no ar
 app.get('/', (req, res) => {
   res.send('Servidor do Painel de Segurança está no ar e conectado ao Firestore!');
 });
@@ -38,7 +50,7 @@ const fetchCollection = async (collectionName) => {
     return data;
 };
 
-// Endpoint de dados de segurança
+// Endpoint para fornecer os dados de segurança (roubo/furto)
 app.get('/api/security', async (req, res) => {
   try {
     const securityData = await fetchCollection('security');
@@ -49,7 +61,7 @@ app.get('/api/security', async (req, res) => {
   }
 });
 
-// Endpoint de dados de trânsito (todos)
+// Endpoint para fornecer os dados de trânsito (todos os veículos)
 app.get('/api/traffic/all', async (req, res) => {
   try {
     const trafficAllData = await fetchCollection('traffic_all');
@@ -60,7 +72,7 @@ app.get('/api/traffic/all', async (req, res) => {
   }
 });
 
-// Endpoint de dados de trânsito (motos)
+// Endpoint para fornecer os dados de trânsito (apenas motociclos)
 app.get('/api/traffic/motorcycle', async (req, res) => {
   try {
     const trafficMotorcycleData = await fetchCollection('traffic_motorcycle');
@@ -71,12 +83,13 @@ app.get('/api/traffic/motorcycle', async (req, res) => {
   }
 });
 
-// Endpoint de dados de IVR
+// Endpoint para fornecer os dados de IVR (risco por modelo)
 app.get('/api/ivr', async (req, res) => {
   try {
     const snapshot = await db.collection('ivr_data').get();
     const ivrData = {};
     snapshot.forEach(doc => {
+        // Recria o objeto original a partir dos documentos
         ivrData[doc.id] = doc.data().models;
     });
     res.json(ivrData);
@@ -86,10 +99,9 @@ app.get('/api/ivr', async (req, res) => {
   }
 });
 
-
-// NOVO ENDPOINT DE RANKING
+// Endpoint de Ranking
 app.get('/api/rankings', async (req, res) => {
-    const { metric, type, collection } = req.query; // Ex: metric=roubo23, type=absolute, collection=security
+    const { metric, type, collection } = req.query;
 
     if (!metric || !type || !collection) {
         return res.status(400).json({ error: 'Parâmetros metric, type e collection são obrigatórios.' });
@@ -101,7 +113,6 @@ app.get('/api/rankings', async (req, res) => {
         let calculatedData;
 
         if (metric === 'total') {
-            // Lógica especial para a métrica combinada 'total'
             calculatedData = data.map(item => {
                 const value = type === 'rate' ? (item.taxaRoubo23 || 0) + (item.taxaFurto23 || 0) : (item.roubo23 || 0) + (item.furto23 || 0);
                 return { ...item, value };
@@ -116,7 +127,7 @@ app.get('/api/rankings', async (req, res) => {
         const sortedData = calculatedData.sort((a, b) => b.value - a.value);
 
         const top5 = sortedData.slice(0, 5);
-        const bottom5 = sortedData.slice(-5).reverse(); // .reverse() para mostrar do melhor para o pior
+        const bottom5 = sortedData.slice(-5).reverse();
 
         res.json({ top5, bottom5 });
 
@@ -126,8 +137,6 @@ app.get('/api/rankings', async (req, res) => {
     }
 });
 
-
 // --- Inicialização do Servidor ---
-app.listen(PORT, () => {
-  console.log(`Servidor rodando em http://localhost:${PORT}`);
-});
+// A Vercel gere a porta, por isso não precisamos de app.listen
+module.exports = app;
