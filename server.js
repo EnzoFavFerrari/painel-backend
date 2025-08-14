@@ -6,24 +6,20 @@ const cors = require('cors');
 const admin = require('firebase-admin');
 
 // --- Configuração do Firebase ---
-
-const serviceAccountString = process.env.FIREBASE_SERVICE_ACCOUNT;
 let serviceAccount;
 
-// --- LOGS DE DEPURAÇÃO ---
-// Vamos verificar se a variável de ambiente existe e o que ela contém.
-console.log("A verificar a variável de ambiente FIREBASE_SERVICE_ACCOUNT...");
-if (serviceAccountString) {
-    console.log("Variável de ambiente encontrada. A tentar fazer o parse...");
-    serviceAccount = JSON.parse(serviceAccountString);
-    // Vamos imprimir o ID do projeto para confirmar se é a chave correta.
-    console.log("ID do Projeto da chave na Vercel:", serviceAccount.project_id); 
+// Verifica se a variável de ambiente Base64 existe (para a Vercel)
+if (process.env.FIREBASE_SERVICE_ACCOUNT_BASE64) {
+  console.log("Variável Base64 encontrada. A descodificar...");
+  // Descodifica a string Base64 para obter o JSON original
+  const decodedServiceAccount = Buffer.from(process.env.FIREBASE_SERVICE_ACCOUNT_BASE64, 'base64').toString('utf-8');
+  serviceAccount = JSON.parse(decodedServiceAccount);
+  console.log("Chave descodificada com sucesso. ID do Projeto:", serviceAccount.project_id);
 } else {
-    console.log("Variável de ambiente não encontrada. A usar o ficheiro local serviceAccountKey.json.");
-    serviceAccount = require('./serviceAccountKey.json');
+  // Se não, usa o ficheiro local (para desenvolvimento)
+  console.log("A usar o ficheiro local serviceAccountKey.json.");
+  serviceAccount = require('./serviceAccountKey.json');
 }
-// --- FIM DOS LOGS DE DEPURAÇÃO ---
-
 
 // Inicializa a aplicação Firebase com as credenciais corretas
 if (!admin.apps.length) {
@@ -32,121 +28,98 @@ if (!admin.apps.length) {
   });
 }
 
-// Obtém uma referência à base de dados Firestore
 const db = admin.firestore();
 
 // --- Inicialização do App Express ---
 const app = express();
-const PORT = process.env.PORT || 3000;
 
 // --- Middlewares ---
 app.use(cors());
 app.use(express.json());
 
-// --- Rotas da API (agora a ler do Firestore) ---
+// --- Rotas da API ---
 
-// Rota principal para verificar se o servidor está no ar
+// Rota principal
 app.get('/', (req, res) => {
   res.send('Servidor do Painel de Segurança está no ar e conectado ao Firestore!');
 });
 
-// Função auxiliar para buscar uma coleção inteira
+// Função auxiliar para buscar uma coleção
 const fetchCollection = async (collectionName) => {
     const snapshot = await db.collection(collectionName).get();
-    const data = [];
-    snapshot.forEach(doc => {
-        data.push(doc.data());
-    });
+    const data = snapshot.docs.map(doc => doc.data());
     return data;
 };
 
-// Endpoint para fornecer os dados de segurança (roubo/furto)
+// Endpoint de Segurança
 app.get('/api/security', async (req, res) => {
   try {
     const securityData = await fetchCollection('security');
     res.json(securityData);
   } catch (error) {
-    console.error("Erro ao buscar dados de segurança:", error);
-    res.status(500).send("Erro interno do servidor");
+    console.error("Erro ao buscar dados de segurança:", error.message);
+    res.status(500).send("Erro interno do servidor ao buscar dados de segurança.");
   }
 });
 
-// Endpoint para fornecer os dados de trânsito (todos os veículos)
+// Endpoint de Trânsito (Todos)
 app.get('/api/traffic/all', async (req, res) => {
-  try {
-    const trafficAllData = await fetchCollection('traffic_all');
-    res.json(trafficAllData);
-  } catch (error) {
-    console.error("Erro ao buscar dados de trânsito (todos):", error);
-    res.status(500).send("Erro interno do servidor");
-  }
+    try {
+        const data = await fetchCollection('traffic_all');
+        res.json(data);
+    } catch (e) {
+        console.error("Erro ao buscar dados de trânsito (todos):", e.message);
+        res.status(500).send("Erro interno do servidor.");
+    }
 });
 
-// Endpoint para fornecer os dados de trânsito (apenas motociclos)
+// Endpoint de Trânsito (Motos)
 app.get('/api/traffic/motorcycle', async (req, res) => {
-  try {
-    const trafficMotorcycleData = await fetchCollection('traffic_motorcycle');
-    res.json(trafficMotorcycleData);
-  } catch (error) {
-    console.error("Erro ao buscar dados de trânsito (motos):", error);
-    res.status(500).send("Erro interno do servidor");
-  }
+    try {
+        const data = await fetchCollection('traffic_motorcycle');
+        res.json(data);
+    } catch (e) {
+        console.error("Erro ao buscar dados de trânsito (motos):", e.message);
+        res.status(500).send("Erro interno do servidor.");
+    }
 });
 
-// Endpoint para fornecer os dados de IVR (risco por modelo)
+// Endpoint de IVR
 app.get('/api/ivr', async (req, res) => {
-  try {
-    const snapshot = await db.collection('ivr_data').get();
-    const ivrData = {};
-    snapshot.forEach(doc => {
-        // Recria o objeto original a partir dos documentos
-        ivrData[doc.id] = doc.data().models;
-    });
-    res.json(ivrData);
-  } catch (error) {
-    console.error("Erro ao buscar dados de IVR:", error);
-    res.status(500).send("Erro interno do servidor");
-  }
+    try {
+        const snapshot = await db.collection('ivr_data').get();
+        const ivrData = {};
+        snapshot.forEach(doc => {
+            ivrData[doc.id] = doc.data().models;
+        });
+        res.json(ivrData);
+    } catch (e) {
+        console.error("Erro ao buscar dados de IVR:", e.message);
+        res.status(500).send("Erro interno do servidor.");
+    }
 });
 
-// Endpoint de Ranking
+// Endpoint de Rankings
 app.get('/api/rankings', async (req, res) => {
     const { metric, type, collection } = req.query;
-
     if (!metric || !type || !collection) {
-        return res.status(400).json({ error: 'Parâmetros metric, type e collection são obrigatórios.' });
+        return res.status(400).json({ error: 'Parâmetros obrigatórios em falta.' });
     }
-
     try {
         const data = await fetchCollection(collection);
-        
         let calculatedData;
-
         if (metric === 'total') {
-            calculatedData = data.map(item => {
-                const value = type === 'rate' ? (item.taxaRoubo23 || 0) + (item.taxaFurto23 || 0) : (item.roubo23 || 0) + (item.furto23 || 0);
-                return { ...item, value };
-            });
+            calculatedData = data.map(item => ({ ...item, value: (type === 'rate' ? (item.taxaRoubo23 || 0) + (item.taxaFurto23 || 0) : (item.roubo23 || 0) + (item.furto23 || 0)) }));
         } else {
-            calculatedData = data.map(item => ({
-                ...item,
-                value: item[metric] || 0
-            }));
+            calculatedData = data.map(item => ({ ...item, value: item[metric] || 0 }));
         }
-
         const sortedData = calculatedData.sort((a, b) => b.value - a.value);
-
-        const top5 = sortedData.slice(0, 5);
-        const bottom5 = sortedData.slice(-5).reverse();
-
-        res.json({ top5, bottom5 });
-
-    } catch (error) {
-        console.error(`Erro ao gerar ranking para ${metric}:`, error);
-        res.status(500).send("Erro interno do servidor ao gerar ranking.");
+        res.json({ top5: sortedData.slice(0, 5), bottom5: sortedData.slice(-5).reverse() });
+    } catch (e) {
+        console.error("Erro ao gerar rankings:", e.message);
+        res.status(500).send("Erro interno do servidor.");
     }
 });
 
-// --- Inicialização do Servidor ---
-// A Vercel gere a porta, por isso não precisamos de app.listen
+// Exporta a app para a Vercel
 module.exports = app;
