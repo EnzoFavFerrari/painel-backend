@@ -7,14 +7,25 @@ const admin = require('firebase-admin');
 
 // --- Configuração do Firebase ---
 
-// Tenta obter as credenciais da variável de ambiente (para a Vercel)
-// Se não encontrar, usa o ficheiro local (para desenvolvimento)
-const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT
-  ? JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT)
-  : require('./serviceAccountKey.json');
+const serviceAccountString = process.env.FIREBASE_SERVICE_ACCOUNT;
+let serviceAccount;
+
+// --- LOGS DE DEPURAÇÃO ---
+// Vamos verificar se a variável de ambiente existe e o que ela contém.
+console.log("A verificar a variável de ambiente FIREBASE_SERVICE_ACCOUNT...");
+if (serviceAccountString) {
+    console.log("Variável de ambiente encontrada. A tentar fazer o parse...");
+    serviceAccount = JSON.parse(serviceAccountString);
+    // Vamos imprimir o ID do projeto para confirmar se é a chave correta.
+    console.log("ID do Projeto da chave na Vercel:", serviceAccount.project_id); 
+} else {
+    console.log("Variável de ambiente não encontrada. A usar o ficheiro local serviceAccountKey.json.");
+    serviceAccount = require('./serviceAccountKey.json');
+}
+// --- FIM DOS LOGS DE DEPURAÇÃO ---
+
 
 // Inicializa a aplicação Firebase com as credenciais corretas
-// Esta verificação impede que a app seja inicializada múltiplas vezes
 if (!admin.apps.length) {
   admin.initializeApp({
     credential: admin.credential.cert(serviceAccount)
@@ -22,7 +33,6 @@ if (!admin.apps.length) {
 }
 
 // Obtém uma referência à base de dados Firestore
-// Esta linha ESTÁ AGORA no sítio certo
 const db = admin.firestore();
 
 // --- Inicialização do App Express ---
